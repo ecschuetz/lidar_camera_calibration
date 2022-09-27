@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 '''
@@ -72,7 +72,7 @@ from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 from sensor_msgs.msg import Image, CameraInfo, PointCloud2
 
 # Global variables
-OUSTER_LIDAR = False
+OUSTER_LIDAR = True
 PAUSE = False
 FIRST_TIME = True
 KEY_LOCK = threading.Lock()
@@ -93,7 +93,7 @@ Outputs: None
 '''
 def handle_keyboard():
     global KEY_LOCK, PAUSE
-    key = raw_input('Press [ENTER] to pause and pick points\n')
+    key = input('Press [ENTER] to pause and pick points\n')
     with KEY_LOCK: PAUSE = True
 
 
@@ -156,7 +156,7 @@ Inputs:
 Outputs:
     Picked points saved in PKG_PATH/CALIB_PATH/img_corners.npy
 '''
-def extract_points_2D(img_msg, now, rectify=False):
+def extract_points_2D(img_msg, now, rectify=True):
     # Log PID
     rospy.loginfo('2D Picker PID: [%d]' % os.getpid())
 
@@ -230,14 +230,13 @@ def extract_points_3D(velodyne, now):
     points = np.asarray(points.tolist())
     
     # Group all beams together and pick the first 4 columns for X, Y, Z, intensity.
-    if OUSTER_LIDAR: points = points.reshape(-1, 9)[:, :4]
+    if OUSTER_LIDAR: points = points.reshape(-1, 6)[:, :4]
 
     # Select points within chessboard range
     inrange = np.where((points[:, 0] > 0) &
-                       (points[:, 0] < 2.5) &
-                       (np.abs(points[:, 1]) < 2.5) &
-                       (points[:, 2] < 2))
-    points = points[inrange[0]]
+                       (points[:, 0] < 25) &
+                       (np.abs(points[:, 1]) < 60))
+    #points = points[inrange[0]]
     print(points.shape)
     if points.shape[0] > 5:
         rospy.loginfo('PCL points available: %d', points.shape[0])
@@ -337,8 +336,8 @@ def calibrate(points2D=None, points3D=None):
         translation_vector, camera_matrix, dist_coeffs)[0].squeeze(1)
     assert(points2D_reproj.shape == points2D.shape)
     error = (points2D_reproj - points2D)[inliers]  # Compute error only over inliers.
-    rmse = np.sqrt(np.mean(error[:, 0] ** 2 + error[:, 1] ** 2))
-    rospy.loginfo('Re-projection error before LM refinement (RMSE) in px: ' + str(rmse))
+   # rmse = np.sqrt(np.mean(error[:, 0] ** 2 + error[:, 1] ** 2))
+  #  rospy.loginfo('Re-projection error before LM refinement (RMSE) in px: ' + str(rmse))
 
     # Refine estimate using LM
     if not success:
@@ -355,8 +354,8 @@ def calibrate(points2D=None, points3D=None):
             translation_vector, camera_matrix, dist_coeffs)[0].squeeze(1)
         assert(points2D_reproj.shape == points2D.shape)
         error = (points2D_reproj - points2D)[inliers]  # Compute error only over inliers.
-        rmse = np.sqrt(np.mean(error[:, 0] ** 2 + error[:, 1] ** 2))
-        rospy.loginfo('Re-projection error after LM refinement (RMSE) in px: ' + str(rmse))
+       # rmse = np.sqrt(np.mean(error[:, 0] ** 2 + error[:, 1] ** 2))
+      #  rospy.loginfo('Re-projection error after LM refinement (RMSE) in px: ' + str(rmse))
 
     # Convert rotation vector
     rotation_matrix = cv2.Rodrigues(rotation_vector)[0]
@@ -401,17 +400,18 @@ def project_point_cloud(velodyne, img_msg, image_pub):
     # Extract points from message
     points3D = ros_numpy.point_cloud2.pointcloud2_to_array(velodyne)
     points3D = np.asarray(points3D.tolist())
+
     
     # Group all beams together and pick the first 4 columns for X, Y, Z, intensity.
-    if OUSTER_LIDAR: points3D = points3D.reshape(-1, 9)[:, :4]
+    if OUSTER_LIDAR: points3D = points3D.reshape(-1, 6)[:, :4]
     
     # Filter points in front of camera
-    inrange = np.where((points3D[:, 2] > 0) &
-                       (points3D[:, 2] < 6) &
-                       (np.abs(points3D[:, 0]) < 6) &
-                       (np.abs(points3D[:, 1]) < 6))
+    inrange = np.where((points3D[:, 0] >= 0) &
+                       (points3D[:, 1] >= 3) &
+                       (np.abs(points3D[:, 0]) < 8) &
+                       (np.abs(points3D[:, 1]) < 50))
     max_intensity = np.max(points3D[:, -1])
-    points3D = points3D[inrange[0]]
+    #points3D = points3D[inrange[0]]
 
     # Color map for the points
     cmap = matplotlib.cm.get_cmap('jet')
@@ -420,15 +420,18 @@ def project_point_cloud(velodyne, img_msg, image_pub):
     # Project to 2D and filter points within image boundaries
     points2D = [ CAMERA_MODEL.project3dToPixel(point) for point in points3D[:, :3] ]
     points2D = np.asarray(points2D)
-    inrange = np.where((points2D[:, 0] >= 0) &
-                       (points2D[:, 1] >= 0) &
-                       (points2D[:, 0] < img.shape[1]) &
-                       (points2D[:, 1] < img.shape[0]))
-    points2D = points2D[inrange[0]].round().astype('int')
+    inrange = np.where((points2D[:, 0] <= 5000) &
+                      (points2D[:, 1] >= -1000) &
+                     (points2D[:, 0] < img.shape[1]) &
+                    (points2D[:, 1] < img.shape[0]))
+    #points2D = points2D[inrange[0]].round().astype('int')
 
     # Draw the projected 2D points
     for i in range(len(points2D)):
-        cv2.circle(img, tuple(points2D[i]), 2, tuple(colors[i]), -1)
+        center_coordinates=tuple(points2D[i])
+        center_coordinates=(int(center_coordinates[0]),int(center_coordinates[1]))
+        center_color=tuple(colors[i])
+        cv2.circle(img, center_coordinates, 2, center_color, -1)
 
     # Publish the projected points image
     try:
@@ -531,9 +534,9 @@ if __name__ == '__main__':
 
     # Calibration mode, rosrun
     if sys.argv[1] == '--calibrate':
-        camera_info = '/sensors/camera/camera_info'
-        image_color = '/sensors/camera/image_color'
-        velodyne_points = '/sensors/velodyne_points'
+        camera_info = '/pylon_camera_node/camera_info'
+        image_color = '/pylon_camera_node/image_rect'
+        velodyne_points = '/points_2_1/points_raw'
         camera_lidar = None
         PROJECT_MODE = False
     # Projection mode, run from launch file
