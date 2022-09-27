@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
 
-    <arg name="camera" default="/sensors/camera" />
+    <arg name="camera" default="/pylon_camera_node/image_rect" />
 
     <!-- Play rosbag record -->
     <include file="$(find lidar_camera_calibration)/launch/play_rosbag.launch">
-        <arg name="bagfile" value="2016-11-22-14-32-13_test_updated.bag" />
+        <arg name="bagfile" value="2.bag" />
     </include>
 
     <!-- Nodelet manager for this pipeline -->
@@ -18,7 +18,7 @@
 
     <node
         pkg="image_proc"
-        type="image_proc" 
+        type="image_proc"
         name="image_proc_node1" />
 
     <!-- Run image_proc/rectify nodelet -->
@@ -27,13 +27,13 @@
         type="nodelet"
         name="rectify_color"
         args="load image_proc/rectify lidar_camera_manager --no-bond" >
-        
+
         <!-- Remap input topics -->
-        <remap from="image_mono" to="$(arg camera)/image_color" />
-        <remap from="camera_info" to="$(arg camera)/camera_info" />
+        <remap from="image_mono" to="pylon_camera_node/image_rect" />
+        <remap from="camera_info" to="pylom_camera_node/camera_info" />
 
         <!-- Remap output topics -->
-        <remap from="image_rect" to="$(arg camera)/image_rect_color" />
+        <remap from="image_rect" to="pylon_camera_node/image_rect" />
     </node>
 
     <!-- Wire static transform from the world to velodyne frame -->
@@ -42,31 +42,33 @@
         type="static_transform_publisher"
         name="world_velodyne_tf"
         output="screen"
-        <!-- Fill this with estimated transform X Y Z Y P R -->
-        args="0 0 0 0 0 0 world velodyne" />
+        args="-0.52126319 -0.19419534  0.10445234 -0.22579739008891475 -0.5550715856478498 1.6290789567251898 world velodyne"/>
+       <!-- args="-6.18807183  -1.18270985 -69.58951781 -3.0631611857569596 0.41345821694828266 1.680237033679347 world velodyne" /> -->
+     <!--   args="-6.32206789  -1.18074621 -69.90462665 -3.059101688577415 0.4089327556813824 1.6796255417759396 world velodyne" /> -->
+     <!--   args="2.56324333 -17.02782584   7.90461621 -0.35099201725014023 0.41792549957264374 1.0423111808460608 world velodyne" /> -->
 
     <!-- Setup params for Camera-LiDAR calibration script -->
-    <param name="camera_info_topic" type="str" value="$(arg camera)/camera_info" />
-    <param name="image_color_topic" type="str" value="$(arg camera)/image_rect_color" />
-    <param name="velodyne_points_topic" type="str" value="/sensors/velodyne_points" />
+    <param name="camera_info_topic" type="str" value="/pylon_camera_node/camera_info" />
+    <param name="image_color_topic" type="str" value="/pylon_camera_node/image_rect" />
+    <param name="velodyne_points_topic" type="str" value="/points_2_1/points_raw" />
     <param name="camera_lidar_topic" type="str" value="$(arg camera)/camera_lidar" />
     <param name="project_mode" type="bool" value="true" />
 
     <!-- Run Camera-LiDAR projection script -->
-    <node   
+    <node
         pkg="lidar_camera_calibration"
         type="calibrate_camera_lidar.py"
         name="calibrate_camera_lidar"
         output="screen" />
 
     <!-- Run image view to display the projected points image -->
-    <node 
-        name="camera_lidar_projection" 
+    <node
+        name="camera_lidar_projection"
         pkg="image_view"
         type="image_view"
         respawn="false"
         output="screen">
-        
+
         <!-- Remap input topics -->
         <remap from="image" to="$(arg camera)/camera_lidar" />
     </node>
