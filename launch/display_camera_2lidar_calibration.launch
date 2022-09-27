@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+
+    <arg name="camera" default="/pylon_camera_node/image_rect" />
+
+    <!-- Play rosbag record -->
+    <include file="$(find lidar_camera_calibration)/launch/play_rosbag.launch">
+        <arg name="bagfile" value="2.bag" />
+    </include>
+
+
+      <!-- Console launch prefix -->
+      <arg name="launch_prefix" default=""/>
+      <arg name="image" default="/pylon_camera_node/image_rect/camera_lidar" />
+
+      <!-- Config and weights folder. -->
+      <arg name="yolo_weights_path"          default="$(find darknet_ros)/yolo_network_config/weights"/>
+      <arg name="yolo_config_path"           default="$(find darknet_ros)/yolo_network_config/cfg"/>
+
+      <!-- ROS and network parameter files -->
+      <arg name="ros_param_file"             default="$(find darknet_ros)/config/ros.yaml"/>
+      <arg name="network_param_file"         default="$(find darknet_ros)/config/BEWAv8_tiny.yaml"/>
+
+      <!-- Load parameters -->
+      <rosparam command="load" ns="darknet_ros" file="$(arg ros_param_file)"/>
+      <rosparam command="load" ns="darknet_ros" file="$(arg network_param_file)"/>
+
+      <!-- Start darknet and ros wrapper -->
+      <node pkg="darknet_ros" type="darknet_ros" name="darknet_ros" output="screen" launch-prefix="$(arg launch_prefix)">
+        <param name="weights_path"          value="$(arg yolo_weights_path)" />
+        <param name="config_path"           value="$(arg yolo_config_path)" />
+        <remap from="camera/rgb/image_raw"  to="$(arg image)" />
+      </node>
+
+     <!--<node name="republish" type="republish" pkg="image_transport"	args="compressed in:=/front_camera/image_raw raw out:=/camera/image_raw" /> -->
+
+
+    <!-- Nodelet manager for this pipeline -->
+    <node
+        pkg="nodelet"
+        type="nodelet"
+        args="manager"
+        name="lidar_camera_manager"
+        output="screen" />
+
+    <node
+        pkg="image_proc"
+        type="image_proc"
+        name="image_proc_node1" />
+
+    <!-- Run image_proc/rectify nodelet -->
+    <node
+        pkg="nodelet"
+        type="nodelet"
+        name="rectify_color"
+        args="load image_proc/rectify lidar_camera_manager --no-bond" >
+
+        <!-- Remap input topics -->
+        <remap from="image_mono" to="pylon_camera_node/image_rect" />
+        <remap from="camera_info" to="pylom_camera_node/camera_info" />
+
+        <!-- Remap output topics -->
+        <remap from="image_rect" to="pylon_camera_node/image_rect" />
+    </node>
+
+    <!-- Wire static transform from the world to velodyne frame -->
+    <node
+        pkg="tf2_ros"
+        type="static_transform_publisher"
+        name="world_velodyne_tf"
+        output="screen"
+        args="-0.52126319 -0.19419534  0.10445234 -0.22579739008891475 -0.5550715856478498 1.6290789567251898 world velodyne"/>
+    <node
+            pkg="tf2_ros"
+            type="static_transform_publisher"
+            name="world_velodyne_tf_2"
+            output="screen"
+            args="-6.18807183  -1.18270985 -69.58951781 -3.0631611857569596 0.41345821694828266 1.680237033679347 world velodyne2" />
+     <!--   args="-6.32206789  -1.18074621 -69.90462665 -3.059101688577415 0.4089327556813824 1.6796255417759396 world velodyne" /> -->
+     <!--   args="2.56324333 -17.02782584   7.90461621 -0.35099201725014023 0.41792549957264374 1.0423111808460608 world velodyne" /> -->
+
+    <!-- Setup params for Camera-LiDAR calibration script -->
+    <param name="camera_info_topic" type="str" value="/pylon_camera_node/camera_info" />
+    <param name="image_color_topic" type="str" value="/pylon_camera_node/image_rect" />
+    <param name="velodyne_points_topic" type="str" value="/points_2_1/points_raw" />
+    <param name="velodyne2_points_topic" type="str" value="/points_2_2/points_raw" />
+    <param name="camera_lidar_topic" type="str" value="$(arg camera)/camera_lidar" />
+    <param name="project_mode" type="bool" value="true" />
+
+    <!-- Run Camera-LiDAR projection script -->
+    <node
+        pkg="lidar_camera_calibration"
+        type="calibrate_camera_2lidar.py"
+        name="calibrate_camera_lidar"
+        output="screen" />
+
+    <!-- Run image view to display the projected points image -->
+    <node
+        name="camera_lidar_projection"
+        pkg="image_view"
+        type="image_view"
+        respawn="false"
+        output="screen">
+
+        <!-- Remap input topics -->
+        <remap from="image" to="$(arg camera)/camera_lidar" />
+    </node>
+
+</launch>
